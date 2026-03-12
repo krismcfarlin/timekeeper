@@ -12,7 +12,14 @@ export default function Login() {
     e.preventDefault()
     setError('')
     try {
-      await pb.collection('_superusers').authWithPassword(email, password)
+      const res = await fetch('http://127.0.0.1:8090/api/admins/auth-with-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identity: email, password })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.message || 'Auth failed')
+      pb.authStore.save(data.token, data.admin)
       navigate('/timer')
     } catch (err) {
       setError('Invalid email or password')

@@ -42,7 +42,7 @@ done
 
 # --- Seed superadmin ---
 echo "==> Creating superadmin..."
-RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$PB_URL/api/collections/_superusers/records" \
+RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$PB_URL/api/admins" \
   -H "Content-Type: application/json" \
   -d '{"email":"krismcfarlin@gmail.com","password":"super1234bad","passwordConfirm":"super1234bad"}')
 

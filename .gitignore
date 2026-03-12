@@ -1,0 +1,6 @@
+pocketbase/pocketbase
+pocketbase/pocketbase.exe
+pb_data/
+node_modules/
+frontend/node_modules/
+frontend/dist/

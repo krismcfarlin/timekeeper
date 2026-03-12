@@ -1,5 +1,7 @@
 // pb_migrations/1700000001_init_collections.js
 migrate((db) => {
+  const dao = new Dao(db);
+
   // clients
   const clients = new Collection({
     name: "clients",
@@ -53,6 +55,7 @@ migrate((db) => {
   });
   dao.saveCollection(timeEntries);
 }, (db) => {
+  const dao = new Dao(db);
   dao.deleteCollection("time_entries");
   dao.deleteCollection("tasks");
   dao.deleteCollection("projects");

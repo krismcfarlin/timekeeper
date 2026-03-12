@@ -12,7 +12,7 @@ export default function Login() {
     e.preventDefault()
     setError('')
     try {
-      await pb.admins.authWithPassword(email, password)
+      await pb.collection('_superusers').authWithPassword(email, password)
       navigate('/timer')
     } catch (err) {
       setError('Invalid email or password')

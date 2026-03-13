@@ -57,7 +57,7 @@ export default function Reports() {
   const { data: entries = [] } = useQuery({
     queryKey: ['report_entries', start, end],
     queryFn: () => pb.collection('time_entries').getFullList({
-      filter: `date>="${start}" && date<="${end}" && ended_at!="" && hours>0`,
+      filter: `date >= "${start}" && date <= "${end}" && hours > 0.001`,
       expand: 'project,project.client,task',
       sort: 'date'
     })

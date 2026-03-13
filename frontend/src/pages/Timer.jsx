@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { pb } from '../lib/pb'
 
+const LS_KEY = 'timekeeper_active_timer'
+
 function formatDuration(seconds) {
   const h = Math.floor(seconds / 3600)
   const m = Math.floor((seconds % 3600) / 60)
@@ -11,6 +13,15 @@ function formatDuration(seconds) {
 
 function today() {
   return new Date().toISOString().split('T')[0]
+}
+
+function saveTimerState(state) {
+  if (state) localStorage.setItem(LS_KEY, JSON.stringify(state))
+  else localStorage.removeItem(LS_KEY)
+}
+
+function loadTimerState() {
+  try { return JSON.parse(localStorage.getItem(LS_KEY)) } catch { return null }
 }
 
 export default function Timer() {
@@ -30,40 +41,29 @@ export default function Timer() {
   const [manualNotes, setManualNotes] = useState('')
   const [showManual, setShowManual] = useState(false)
 
+  // Restore in-progress timer from localStorage on mount
+  useEffect(() => {
+    const saved = loadTimerState()
+    if (saved) {
+      const elapsedSecs = Math.floor((Date.now() - new Date(saved.startedAt).getTime()) / 1000)
+      setActiveEntryId(saved.entryId)
+      setSelectedProject(saved.projectId || '')
+      setSelectedTask(saved.taskId || '')
+      setNotes(saved.notes || '')
+      setElapsed(Math.max(0, elapsedSecs))
+      setRunning(true)
+    }
+  }, [])
+
   const { data: projects = [] } = useQuery({
     queryKey: ['projects'],
     queryFn: () => pb.collection('projects').getFullList({ expand: 'client', filter: 'active=true', sort: 'name' })
   })
 
-  // Restore in-progress timer on page load
-  const { data: inProgress = [] } = useQuery({
-    queryKey: ['in_progress'],
-    queryFn: () => pb.collection('time_entries').getFullList({
-      filter: 'started_at!="" && ended_at=""',
-      expand: 'project,task',
-    }),
-    staleTime: Infinity,
-  })
-
-  useEffect(() => {
-    if (inProgress.length > 0 && !running && !activeEntryId) {
-      const entry = inProgress[0]
-      const elapsedSecs = Math.floor((Date.now() - new Date(entry.started_at).getTime()) / 1000)
-      const projectId = Array.isArray(entry.project) ? entry.project[0] : entry.project
-      const taskId = Array.isArray(entry.task) ? (entry.task[0] || '') : (entry.task || '')
-      setActiveEntryId(entry.id)
-      setSelectedProject(projectId || '')
-      setSelectedTask(taskId)
-      setNotes(entry.notes || '')
-      setElapsed(Math.max(0, elapsedSecs))
-      setRunning(true)
-    }
-  }, [inProgress])
-
   const { data: tasks = [] } = useQuery({
     queryKey: ['tasks', selectedProject],
     queryFn: () => selectedProject
-      ? pb.collection('tasks').getFullList({ filter: `project="${selectedProject}"`, sort: 'name' })
+      ? pb.collection('tasks').getFullList({ filter: `project.id = "${selectedProject}"`, sort: 'name' })
       : Promise.resolve([]),
     enabled: !!selectedProject
   })
@@ -71,7 +71,7 @@ export default function Timer() {
   const { data: manualTasks = [] } = useQuery({
     queryKey: ['tasks', manualProject],
     queryFn: () => manualProject
-      ? pb.collection('tasks').getFullList({ filter: `project="${manualProject}"`, sort: 'name' })
+      ? pb.collection('tasks').getFullList({ filter: `project.id = "${manualProject}"`, sort: 'name' })
       : Promise.resolve([]),
     enabled: !!manualProject
   })
@@ -79,7 +79,7 @@ export default function Timer() {
   const { data: entries = [] } = useQuery({
     queryKey: ['time_entries', today()],
     queryFn: () => pb.collection('time_entries').getFullList({
-      filter: `date="${today()}" && ended_at!=""`,
+      filter: `date = "${today()}" && hours > 0.001`,
       expand: 'project,project.client,task',
       sort: '-created'
     })
@@ -92,10 +92,7 @@ export default function Timer() {
 
   const updateEntry = useMutation({
     mutationFn: ({ id, ...data }) => pb.collection('time_entries').update(id, data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['time_entries'] })
-      qc.invalidateQueries({ queryKey: ['in_progress'] })
-    }
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['time_entries'] })
   })
 
   const deleteEntry = useMutation({
@@ -127,6 +124,7 @@ export default function Timer() {
       ended_at: ''
     })
     setActiveEntryId(entry.id)
+    saveTimerState({ entryId: entry.id, startedAt: now, projectId: selectedProject, taskId: selectedTask, notes })
   }
 
   function stopTimer() {
@@ -136,10 +134,11 @@ export default function Timer() {
     if (activeEntryId) {
       updateEntry.mutate({
         id: activeEntryId,
-        hours: hours > 0 ? hours : 0.01,
+        hours: hours > 0.001 ? hours : 0.01,
         ended_at: new Date().toISOString()
       })
     }
+    saveTimerState(null)
     setActiveEntryId(null)
     setElapsed(0)
     setNotes('')

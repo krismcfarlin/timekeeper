@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import { pb } from '../lib/pb'
 
 export default function Clients() {
   const qc = useQueryClient()
+  const navigate = useNavigate()
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState({ name: '', email: '', phone: '', notes: '' })
@@ -81,10 +83,13 @@ export default function Clients() {
       <div className="space-y-2">
         {active.map(client => (
           <div key={client.id} className="bg-white rounded-xl border border-gray-200 px-4 py-3 flex items-center justify-between">
-            <div>
+            <button
+              onClick={() => navigate(`/reports?clientId=${client.id}`)}
+              className="text-left hover:text-blue-600 transition"
+            >
               <p className="text-sm font-medium text-gray-900">{client.name}</p>
               {client.email && <p className="text-xs text-gray-400">{client.email}</p>}
-            </div>
+            </button>
             <div className="flex gap-2">
               <button onClick={() => edit(client)} className="text-xs text-blue-500 hover:text-blue-700">Edit</button>
               <button onClick={() => archive.mutate(client)} className="text-xs text-gray-400 hover:text-gray-600">Archive</button>

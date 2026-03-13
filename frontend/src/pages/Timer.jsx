@@ -17,13 +17,12 @@ export default function Timer() {
   const qc = useQueryClient()
   const [running, setRunning] = useState(false)
   const [elapsed, setElapsed] = useState(0)
-  const [startedAt, setStartedAt] = useState(null)
+  const [activeEntryId, setActiveEntryId] = useState(null)
   const [selectedProject, setSelectedProject] = useState('')
   const [selectedTask, setSelectedTask] = useState('')
   const [notes, setNotes] = useState('')
   const intervalRef = useRef(null)
 
-  // Manual entry state
   const [manualDate, setManualDate] = useState(today())
   const [manualHours, setManualHours] = useState('')
   const [manualProject, setManualProject] = useState('')
@@ -35,6 +34,31 @@ export default function Timer() {
     queryKey: ['projects'],
     queryFn: () => pb.collection('projects').getFullList({ expand: 'client', filter: 'active=true', sort: 'name' })
   })
+
+  // Restore in-progress timer on page load
+  const { data: inProgress = [] } = useQuery({
+    queryKey: ['in_progress'],
+    queryFn: () => pb.collection('time_entries').getFullList({
+      filter: 'started_at!="" && ended_at=""',
+      expand: 'project,task',
+    }),
+    staleTime: Infinity,
+  })
+
+  useEffect(() => {
+    if (inProgress.length > 0 && !running && !activeEntryId) {
+      const entry = inProgress[0]
+      const elapsedSecs = Math.floor((Date.now() - new Date(entry.started_at).getTime()) / 1000)
+      const projectId = Array.isArray(entry.project) ? entry.project[0] : entry.project
+      const taskId = Array.isArray(entry.task) ? (entry.task[0] || '') : (entry.task || '')
+      setActiveEntryId(entry.id)
+      setSelectedProject(projectId || '')
+      setSelectedTask(taskId)
+      setNotes(entry.notes || '')
+      setElapsed(Math.max(0, elapsedSecs))
+      setRunning(true)
+    }
+  }, [inProgress])
 
   const { data: tasks = [] } = useQuery({
     queryKey: ['tasks', selectedProject],
@@ -55,15 +79,23 @@ export default function Timer() {
   const { data: entries = [] } = useQuery({
     queryKey: ['time_entries', today()],
     queryFn: () => pb.collection('time_entries').getFullList({
-      filter: `date="${today()}"`,
+      filter: `date="${today()}" && ended_at!=""`,
       expand: 'project,project.client,task',
       sort: '-created'
     })
   })
 
-  const addEntry = useMutation({
+  const createEntry = useMutation({
     mutationFn: (data) => pb.collection('time_entries').create(data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['time_entries'] })
+  })
+
+  const updateEntry = useMutation({
+    mutationFn: ({ id, ...data }) => pb.collection('time_entries').update(id, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['time_entries'] })
+      qc.invalidateQueries({ queryKey: ['in_progress'] })
+    }
   })
 
   const deleteEntry = useMutation({
@@ -80,39 +112,49 @@ export default function Timer() {
     return () => clearInterval(intervalRef.current)
   }, [running])
 
-  function startTimer() {
+  async function startTimer() {
     if (!selectedProject) return
-    setStartedAt(new Date().toISOString())
+    const now = new Date().toISOString()
     setElapsed(0)
     setRunning(true)
+    const entry = await createEntry.mutateAsync({
+      project: selectedProject,
+      task: selectedTask || null,
+      date: today(),
+      hours: 0.001,
+      notes,
+      started_at: now,
+      ended_at: ''
+    })
+    setActiveEntryId(entry.id)
   }
 
   function stopTimer() {
     setRunning(false)
-    const hours = parseFloat((elapsed / 3600).toFixed(2))
-    if (hours > 0) {
-      addEntry.mutate({
-        project: selectedProject,
-        task: selectedTask || null,
-        date: today(),
-        hours,
-        notes,
-        started_at: startedAt,
+    clearInterval(intervalRef.current)
+    const hours = parseFloat((elapsed / 3600).toFixed(4))
+    if (activeEntryId) {
+      updateEntry.mutate({
+        id: activeEntryId,
+        hours: hours > 0 ? hours : 0.01,
         ended_at: new Date().toISOString()
       })
     }
+    setActiveEntryId(null)
     setElapsed(0)
     setNotes('')
   }
 
   function submitManual(e) {
     e.preventDefault()
-    addEntry.mutate({
+    createEntry.mutate({
       project: manualProject,
       task: manualTask || null,
       date: manualDate,
       hours: parseFloat(manualHours),
-      notes: manualNotes
+      notes: manualNotes,
+      started_at: '',
+      ended_at: 'manual'
     })
     setManualHours('')
     setManualNotes('')
@@ -139,20 +181,21 @@ export default function Timer() {
           <select
             value={selectedProject}
             onChange={e => { setSelectedProject(e.target.value); setSelectedTask('') }}
-            className="flex-1 min-w-[200px] border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            disabled={running}
+            className="flex-1 min-w-[200px] border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
           >
             <option value="">Select project...</option>
             {projects.map(p => (
               <option key={p.id} value={p.id}>
-                {p.expand?.client?.name} — {p.name}
+                {p.expand?.client?.[0]?.name} — {p.name}
               </option>
             ))}
           </select>
           <select
             value={selectedTask}
             onChange={e => setSelectedTask(e.target.value)}
-            className="flex-1 min-w-[160px] border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            disabled={!selectedProject}
+            disabled={running || !selectedProject}
+            className="flex-1 min-w-[160px] border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
           >
             <option value="">No task</option>
             {tasks.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
@@ -165,10 +208,12 @@ export default function Timer() {
           />
         </div>
         <div className="flex items-center justify-between">
-          <span className="font-mono text-4xl font-bold text-gray-900">{formatDuration(elapsed)}</span>
+          <span className={`font-mono text-4xl font-bold transition-colors ${running ? 'text-blue-600' : 'text-gray-900'}`}>
+            {formatDuration(elapsed)}
+          </span>
           <button
             onClick={running ? stopTimer : startTimer}
-            disabled={!selectedProject}
+            disabled={!selectedProject && !running}
             className={`px-6 py-2 rounded-lg font-medium text-sm transition ${
               running
                 ? 'bg-red-500 hover:bg-red-600 text-white'
@@ -196,7 +241,7 @@ export default function Timer() {
                 className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" required>
                 <option value="">Select...</option>
                 {projects.map(p => (
-                  <option key={p.id} value={p.id}>{p.expand?.client?.name} — {p.name}</option>
+                  <option key={p.id} value={p.id}>{p.expand?.client?.[0]?.name} — {p.name}</option>
                 ))}
               </select>
             </div>
@@ -241,9 +286,9 @@ export default function Timer() {
               <div key={entry.id} className="bg-white rounded-xl border border-gray-200 px-4 py-3 flex items-center justify-between">
                 <div>
                   <span className="text-sm font-medium text-gray-900">
-                    {entry.expand?.project?.expand?.client?.name} — {entry.expand?.project?.name}
+                    {entry.expand?.project?.[0]?.expand?.client?.[0]?.name} — {entry.expand?.project?.[0]?.name}
                   </span>
-                  {entry.expand?.task && <span className="text-xs text-gray-500 ml-2">· {entry.expand.task.name}</span>}
+                  {entry.expand?.task?.[0] && <span className="text-xs text-gray-500 ml-2">· {entry.expand.task[0].name}</span>}
                   {entry.notes && <p className="text-xs text-gray-400 mt-0.5">{entry.notes}</p>}
                 </div>
                 <div className="flex items-center gap-3">

@@ -1,12 +1,12 @@
 import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import { pb } from '../lib/pb'
 
 function startOf(type, date = new Date()) {
   if (type === 'week') {
     const d = new Date(date)
-    const day = d.getDay()
-    d.setDate(d.getDate() - day)
+    d.setDate(d.getDate() - d.getDay())
     d.setHours(0, 0, 0, 0)
     return d
   }
@@ -45,6 +45,9 @@ function shiftRef(type, ref, dir) {
 }
 
 export default function Reports() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const clientFilter = searchParams.get('clientId')
+
   const [period, setPeriod] = useState('week')
   const [ref, setRef] = useState(new Date())
 
@@ -54,29 +57,36 @@ export default function Reports() {
   const { data: entries = [] } = useQuery({
     queryKey: ['report_entries', start, end],
     queryFn: () => pb.collection('time_entries').getFullList({
-      filter: `date>="${start}" && date<="${end}"`,
+      filter: `date>="${start}" && date<="${end}" && ended_at!="" && hours>0`,
       expand: 'project,project.client,task',
       sort: 'date'
     })
   })
 
-  const totalHours = entries.reduce((s, e) => s + (e.hours || 0), 0)
+  const filteredEntries = useMemo(() => {
+    if (!clientFilter) return entries
+    return entries.filter(e => {
+      const client = e.expand?.project?.[0]?.expand?.client?.[0]
+      return client?.id === clientFilter
+    })
+  }, [entries, clientFilter])
 
-  // Group by client
+  const totalHours = filteredEntries.reduce((s, e) => s + (e.hours || 0), 0)
+
   const byClient = useMemo(() => {
     const map = {}
-    for (const entry of entries) {
-      const clientName = entry.expand?.project?.expand?.client?.name || 'Unknown'
-      const projectName = entry.expand?.project?.name || 'Unknown'
+    for (const entry of filteredEntries) {
+      const client = entry.expand?.project?.[0]?.expand?.client?.[0]
+      const clientName = client?.name || 'Unknown'
+      const projectName = entry.expand?.project?.[0]?.name || 'Unknown'
       if (!map[clientName]) map[clientName] = { hours: 0, projects: {} }
       map[clientName].hours += entry.hours || 0
       if (!map[clientName].projects[projectName]) map[clientName].projects[projectName] = 0
       map[clientName].projects[projectName] += entry.hours || 0
     }
     return Object.entries(map).sort((a, b) => b[1].hours - a[1].hours)
-  }, [entries])
+  }, [filteredEntries])
 
-  // For week view: daily breakdown
   const dailyTotals = useMemo(() => {
     if (period !== 'week') return null
     const days = {}
@@ -86,15 +96,25 @@ export default function Reports() {
       d.setDate(s.getDate() + i)
       days[fmtDate(d)] = 0
     }
-    for (const e of entries) days[e.date] = (days[e.date] || 0) + (e.hours || 0)
+    for (const e of filteredEntries) days[e.date] = (days[e.date] || 0) + (e.hours || 0)
     return days
-  }, [entries, period, ref])
+  }, [filteredEntries, period, ref])
 
   return (
     <div className="space-y-6">
       {/* Controls */}
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <h1 className="text-2xl font-bold text-gray-900">Reports</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold text-gray-900">Reports</h1>
+          {clientFilter && (
+            <button
+              onClick={() => setSearchParams({})}
+              className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full flex items-center gap-1 hover:bg-blue-200 transition"
+            >
+              Filtered by client <span className="opacity-70">✕</span>
+            </button>
+          )}
+        </div>
         <div className="flex items-center gap-2">
           <div className="flex rounded-lg border border-gray-200 overflow-hidden text-sm">
             {['week', 'month', 'year'].map(p => (

@@ -76,6 +76,8 @@ export default function Timer() {
 
   // Edit state
   const [editingId, setEditingId] = useState(null)
+  const [editProject, setEditProject] = useState('')
+  const [editTask, setEditTask] = useState('')
   const [editHours, setEditHours] = useState('')
   const [editNotes, setEditNotes] = useState('')
 
@@ -116,6 +118,14 @@ export default function Timer() {
       ? pb.collection('tasks').getFullList({ filter: `project.id = "${addProject}"`, sort: 'name' })
       : Promise.resolve([]),
     enabled: !!addProject
+  })
+
+  const { data: editTasks = [] } = useQuery({
+    queryKey: ['tasks', editProject],
+    queryFn: () => editProject
+      ? pb.collection('tasks').getFullList({ filter: `project.id = "${editProject}"`, sort: 'name' })
+      : Promise.resolve([]),
+    enabled: !!editProject
   })
 
   const { data: weekEntries = [], refetch: refetchWeek } = useQuery({
@@ -212,7 +222,13 @@ export default function Timer() {
 
   function submitEdit(e) {
     e.preventDefault()
-    updateEntry.mutate({ id: editingId, hours: parseFloat(editHours), notes: editNotes })
+    updateEntry.mutate({
+      id: editingId,
+      project: editProject,
+      task: editTask || null,
+      hours: parseFloat(editHours),
+      notes: editNotes
+    })
     setEditingId(null)
   }
 
@@ -374,21 +390,33 @@ export default function Timer() {
               return (
                 <div key={entry.id} className="px-6 py-4 bg-orange-50 border-l-2 border-orange-400">
                   <form onSubmit={submitEdit} className="flex gap-3 items-end flex-wrap">
-                    <div>
-                      <p className="text-sm font-semibold text-gray-900 mb-2">
-                        {project?.name}{client && <span className="font-normal text-gray-500"> ({client.name})</span>}
-                      </p>
+                    <div className="flex-1 min-w-[200px]">
+                      <label className="block text-xs text-gray-500 mb-1">Project *</label>
+                      <select value={editProject} onChange={e => { setEditProject(e.target.value); setEditTask('') }} required
+                        className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white">
+                        <option value="">Select project...</option>
+                        {projects.map(p => (
+                          <option key={p.id} value={p.id}>{p.expand?.client?.[0]?.name} — {p.name}</option>
+                        ))}
+                      </select>
                     </div>
-                    <div className="flex-1" />
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Task</label>
+                      <select value={editTask} onChange={e => setEditTask(e.target.value)} disabled={!editProject}
+                        className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white disabled:opacity-50">
+                        <option value="">No task</option>
+                        {editTasks.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                      </select>
+                    </div>
                     <div>
                       <label className="block text-xs text-gray-500 mb-1">Hours</label>
                       <input type="number" step="0.01" value={editHours} onChange={e => setEditHours(e.target.value)}
-                        className="w-20 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
+                        className="w-20 border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
                     </div>
                     <div className="flex-1 min-w-[160px]">
                       <label className="block text-xs text-gray-500 mb-1">Notes</label>
                       <input value={editNotes} onChange={e => setEditNotes(e.target.value)} placeholder="Notes"
-                        className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
+                        className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
                     </div>
                     <div className="flex gap-2">
                       <button type="submit" className="bg-orange-500 text-white rounded-lg px-3 py-1.5 text-sm font-medium hover:bg-orange-600">Save</button>
@@ -424,7 +452,15 @@ export default function Timer() {
                     <span className="text-xs">⏱</span> Start
                   </button>
                   <button
-                    onClick={() => { setEditingId(entry.id); setEditHours(entry.hours.toFixed(2)); setEditNotes(entry.notes || '') }}
+                    onClick={() => {
+                      const pId = Array.isArray(entry.project) ? entry.project[0] : entry.project
+                      const tId = Array.isArray(entry.task) ? (entry.task[0] || '') : (entry.task || '')
+                      setEditingId(entry.id)
+                      setEditProject(pId || '')
+                      setEditTask(tId)
+                      setEditHours(entry.hours.toFixed(2))
+                      setEditNotes(entry.notes || '')
+                    }}
                     className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100 transition">
                     Edit
                   </button>

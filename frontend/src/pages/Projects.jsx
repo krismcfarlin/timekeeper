@@ -55,13 +55,13 @@ export default function Projects() {
   const inactive = projects.filter(p => !p.active)
 
   function ProjectCard({ project }) {
-    const projectTasks = tasks.filter(t => t.project === project.id)
+    const projectTasks = tasks.filter(t => [].concat(t.project).includes(project.id))
     return (
       <div className="bg-white rounded-xl border border-gray-200 p-4">
         <div className="flex items-start justify-between mb-2">
           <div>
             <p className="text-sm font-medium text-gray-900">{project.name}</p>
-            <p className="text-xs text-gray-400">{project.expand?.client?.name}</p>
+            <p className="text-xs text-gray-400">{project.expand?.client?.[0]?.name}</p>
           </div>
           <div className="flex gap-2">
             <button onClick={() => edit(project)} className="text-xs text-blue-500 hover:text-blue-700">Edit</button>

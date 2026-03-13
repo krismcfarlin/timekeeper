@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
-import { pb } from '../lib/pb'
+import { client } from '../lib/client'
 
 function startOf(type, date = new Date()) {
   if (type === 'week') {
@@ -56,19 +56,20 @@ export default function Reports() {
 
   const { data: entries = [] } = useQuery({
     queryKey: ['report_entries', start, end],
-    queryFn: () => pb.collection('time_entries').getFullList({
-      filter: `date >= "${start}" && date <= "${end}" && hours > 0.001`,
-      expand: 'project,project.client,task',
-      sort: 'date'
-    })
+    queryFn: () => client.records('time_entries_full').list({
+      filters: [
+        { column: 'date', op: 'greaterThanEqual', value: start },
+        { column: 'date', op: 'lessThanEqual', value: end },
+        { column: 'hours', op: 'greaterThan', value: '0.001' }
+      ],
+      order: ['date'],
+      pagination: { limit: 1000 }
+    }).then(r => r.records)
   })
 
   const filteredEntries = useMemo(() => {
     if (!clientFilter) return entries
-    return entries.filter(e => {
-      const client = e.expand?.project?.[0]?.expand?.client?.[0]
-      return client?.id === clientFilter
-    })
+    return entries.filter(e => e.client_id === clientFilter)
   }, [entries, clientFilter])
 
   const totalHours = filteredEntries.reduce((s, e) => s + (e.hours || 0), 0)
@@ -76,9 +77,8 @@ export default function Reports() {
   const byClient = useMemo(() => {
     const map = {}
     for (const entry of filteredEntries) {
-      const client = entry.expand?.project?.[0]?.expand?.client?.[0]
-      const clientName = client?.name || 'Unknown'
-      const projectName = entry.expand?.project?.[0]?.name || 'Unknown'
+      const clientName = entry.client_name || 'Unknown'
+      const projectName = entry.project_name || 'Unknown'
       if (!map[clientName]) map[clientName] = { hours: 0, projects: {} }
       map[clientName].hours += entry.hours || 0
       if (!map[clientName].projects[projectName]) map[clientName].projects[projectName] = 0

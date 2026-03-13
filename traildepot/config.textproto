@@ -1,0 +1,36 @@
+server {
+  application_name: "Timekeeper"
+}
+auth {}
+record_apis: [
+  {
+    name: "clients"
+    table_name: "clients"
+    acl_authenticated: [CREATE, READ, UPDATE, DELETE]
+  },
+  {
+    name: "projects"
+    table_name: "projects"
+    acl_authenticated: [CREATE, READ, UPDATE, DELETE]
+  },
+  {
+    name: "tasks"
+    table_name: "tasks"
+    acl_authenticated: [CREATE, READ, UPDATE, DELETE]
+  },
+  {
+    name: "time_entries"
+    table_name: "time_entries"
+    acl_authenticated: [CREATE, READ, UPDATE, DELETE]
+  },
+  {
+    name: "time_entries_full"
+    table_name: "time_entries_full"
+    acl_authenticated: [READ]
+  },
+  {
+    name: "projects_with_client"
+    table_name: "projects_with_client"
+    acl_authenticated: [READ]
+  }
+]

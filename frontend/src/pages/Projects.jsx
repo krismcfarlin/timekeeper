@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { pb } from '../lib/pb'
+import { client } from '../lib/client'
 
 export default function Projects() {
   const qc = useQueryClient()
@@ -12,56 +12,60 @@ export default function Projects() {
 
   const { data: clients = [] } = useQuery({
     queryKey: ['clients'],
-    queryFn: () => pb.collection('clients').getFullList({ filter: 'archived=false', sort: 'name' })
+    queryFn: () => client.records('clients').list({
+      filters: [{ column: 'archived', op: 'equal', value: '0' }],
+      order: ['name'],
+      pagination: { limit: 500 }
+    }).then(r => r.records)
   })
 
   const { data: projects = [] } = useQuery({
     queryKey: ['projects'],
-    queryFn: () => pb.collection('projects').getFullList({ expand: 'client', sort: 'name' })
+    queryFn: () => client.records('projects_with_client').list({ order: ['name'], pagination: { limit: 500 } }).then(r => r.records)
   })
 
   const { data: tasks = [] } = useQuery({
     queryKey: ['all_tasks'],
-    queryFn: () => pb.collection('tasks').getFullList({ sort: 'name' })
+    queryFn: () => client.records('tasks').list({ order: ['name'], pagination: { limit: 500 } }).then(r => r.records)
   })
 
   const save = useMutation({
     mutationFn: (data) => editing
-      ? pb.collection('projects').update(editing.id, data)
-      : pb.collection('projects').create(data),
+      ? client.records('projects').update(editing.id, data)
+      : client.records('projects').create(data),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['projects'] }); reset() }
   })
 
   const toggleActive = useMutation({
-    mutationFn: (p) => pb.collection('projects').update(p.id, { active: !p.active }),
+    mutationFn: (p) => client.records('projects').update(p.id, { active: p.active ? 0 : 1 }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['projects'] })
   })
 
   const addTask = useMutation({
-    mutationFn: ({ project, name }) => pb.collection('tasks').create({ name, project }),
+    mutationFn: ({ project, name }) => client.records('tasks').create({ name, project }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['all_tasks'] }); setTaskName(''); setShowTaskForm(null) }
   })
 
   const deleteTask = useMutation({
-    mutationFn: (id) => pb.collection('tasks').delete(id),
+    mutationFn: (id) => client.records('tasks').delete(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['all_tasks'] })
   })
 
   function reset() { setShowForm(false); setEditing(null); setForm({ name: '', client: '', active: true }) }
-  function edit(p) { setEditing(p); setForm({ name: p.name, client: p.client, active: p.active }); setShowForm(true) }
+  function edit(p) { setEditing(p); setForm({ name: p.name, client: p.client_id, active: p.active }); setShowForm(true) }
   function handleSubmit(e) { e.preventDefault(); save.mutate(form) }
 
   const active = projects.filter(p => p.active)
   const inactive = projects.filter(p => !p.active)
 
   function ProjectCard({ project }) {
-    const projectTasks = tasks.filter(t => [].concat(t.project).includes(project.id))
+    const projectTasks = tasks.filter(t => t.project === project.id)
     return (
       <div className="bg-white rounded-xl border border-gray-200 p-4">
         <div className="flex items-start justify-between mb-2">
           <div>
             <p className="text-sm font-medium text-gray-900">{project.name}</p>
-            <p className="text-xs text-gray-400">{project.expand?.client?.[0]?.name}</p>
+            <p className="text-xs text-gray-400">{project.client_name}</p>
           </div>
           <div className="flex gap-2">
             <button onClick={() => edit(project)} className="text-xs text-blue-500 hover:text-blue-700">Edit</button>

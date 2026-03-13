@@ -1,5 +1,5 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
-import { pb } from '../lib/pb'
+import { client } from '../lib/client'
 
 const navItems = [
   { to: '/timer', label: 'Timer' },
@@ -11,8 +11,8 @@ const navItems = [
 export default function Layout() {
   const navigate = useNavigate()
 
-  function logout() {
-    pb.authStore.clear()
+  async function logout() {
+    await client.logout()
     navigate('/login')
   }
 

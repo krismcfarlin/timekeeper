@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { pb } from '../lib/pb'
+import { client } from '../lib/client'
 
 export default function Clients() {
   const qc = useQueryClient()
@@ -12,18 +12,18 @@ export default function Clients() {
 
   const { data: clients = [] } = useQuery({
     queryKey: ['clients'],
-    queryFn: () => pb.collection('clients').getFullList({ sort: 'name' })
+    queryFn: () => client.records('clients').list({ order: ['name'], pagination: { limit: 500 } }).then(r => r.records)
   })
 
   const save = useMutation({
     mutationFn: (data) => editing
-      ? pb.collection('clients').update(editing.id, data)
-      : pb.collection('clients').create(data),
+      ? client.records('clients').update(editing.id, data)
+      : client.records('clients').create(data),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['clients'] }); reset() }
   })
 
   const archive = useMutation({
-    mutationFn: (c) => pb.collection('clients').update(c.id, { archived: !c.archived }),
+    mutationFn: (c) => client.records('clients').update(c.id, { archived: c.archived ? 0 : 1 }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['clients'] })
   })
 
@@ -81,18 +81,18 @@ export default function Clients() {
       )}
 
       <div className="space-y-2">
-        {active.map(client => (
-          <div key={client.id} className="bg-white rounded-xl border border-gray-200 px-4 py-3 flex items-center justify-between">
+        {active.map(c => (
+          <div key={c.id} className="bg-white rounded-xl border border-gray-200 px-4 py-3 flex items-center justify-between">
             <button
-              onClick={() => navigate(`/reports?clientId=${client.id}`)}
+              onClick={() => navigate(`/reports?clientId=${c.id}`)}
               className="text-left hover:text-blue-600 transition"
             >
-              <p className="text-sm font-medium text-gray-900">{client.name}</p>
-              {client.email && <p className="text-xs text-gray-400">{client.email}</p>}
+              <p className="text-sm font-medium text-gray-900">{c.name}</p>
+              {c.email && <p className="text-xs text-gray-400">{c.email}</p>}
             </button>
             <div className="flex gap-2">
-              <button onClick={() => edit(client)} className="text-xs text-blue-500 hover:text-blue-700">Edit</button>
-              <button onClick={() => archive.mutate(client)} className="text-xs text-gray-400 hover:text-gray-600">Archive</button>
+              <button onClick={() => edit(c)} className="text-xs text-blue-500 hover:text-blue-700">Edit</button>
+              <button onClick={() => archive.mutate(c)} className="text-xs text-gray-400 hover:text-gray-600">Archive</button>
             </div>
           </div>
         ))}
@@ -103,10 +103,10 @@ export default function Clients() {
         <div>
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Archived</p>
           <div className="space-y-2">
-            {archived.map(client => (
-              <div key={client.id} className="bg-gray-50 rounded-xl border border-gray-100 px-4 py-3 flex items-center justify-between opacity-60">
-                <p className="text-sm text-gray-600">{client.name}</p>
-                <button onClick={() => archive.mutate(client)} className="text-xs text-blue-500 hover:text-blue-700">Restore</button>
+            {archived.map(c => (
+              <div key={c.id} className="bg-gray-50 rounded-xl border border-gray-100 px-4 py-3 flex items-center justify-between opacity-60">
+                <p className="text-sm text-gray-600">{c.name}</p>
+                <button onClick={() => archive.mutate(c)} className="text-xs text-blue-500 hover:text-blue-700">Restore</button>
               </div>
             ))}
           </div>

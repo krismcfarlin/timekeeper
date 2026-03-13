@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { pb } from '../lib/pb'
+import { client } from '../lib/client'
 
 const LS_KEY = 'timekeeper_active_timer'
 
@@ -109,13 +109,21 @@ export default function Timer() {
 
   const { data: projects = [] } = useQuery({
     queryKey: ['projects'],
-    queryFn: () => pb.collection('projects').getFullList({ expand: 'client', filter: 'active=true', sort: 'name' })
+    queryFn: () => client.records('projects_with_client').list({
+      filters: [{ column: 'active', op: 'equal', value: '1' }],
+      order: ['name'],
+      pagination: { limit: 500 }
+    }).then(r => r.records)
   })
 
   const { data: addTasks = [] } = useQuery({
     queryKey: ['tasks', addProject],
     queryFn: () => addProject
-      ? pb.collection('tasks').getFullList({ filter: `project.id = "${addProject}"`, sort: 'name' })
+      ? client.records('tasks').list({
+          filters: [{ column: 'project', op: 'equal', value: addProject }],
+          order: ['name'],
+          pagination: { limit: 500 }
+        }).then(r => r.records)
       : Promise.resolve([]),
     enabled: !!addProject
   })
@@ -123,18 +131,26 @@ export default function Timer() {
   const { data: editTasks = [] } = useQuery({
     queryKey: ['tasks', editProject],
     queryFn: () => editProject
-      ? pb.collection('tasks').getFullList({ filter: `project.id = "${editProject}"`, sort: 'name' })
+      ? client.records('tasks').list({
+          filters: [{ column: 'project', op: 'equal', value: editProject }],
+          order: ['name'],
+          pagination: { limit: 500 }
+        }).then(r => r.records)
       : Promise.resolve([]),
     enabled: !!editProject
   })
 
   const { data: weekEntries = [], refetch: refetchWeek } = useQuery({
     queryKey: ['week_entries', weekStart, weekEnd],
-    queryFn: () => pb.collection('time_entries').getFullList({
-      filter: `date >= "${weekStart}" && date <= "${weekEnd}" && hours > 0.001`,
-      expand: 'project,project.client,task',
-      sort: '-created'
-    })
+    queryFn: () => client.records('time_entries_full').list({
+      filters: [
+        { column: 'date', op: 'greaterThanEqual', value: weekStart },
+        { column: 'date', op: 'lessThanEqual', value: weekEnd },
+        { column: 'hours', op: 'greaterThan', value: '0.001' }
+      ],
+      order: ['-created'],
+      pagination: { limit: 500 }
+    }).then(r => r.records)
   })
 
   const dayEntries = useMemo(() =>
@@ -155,17 +171,17 @@ export default function Timer() {
   const timerProject = projects.find(p => p.id === timerProjectId)
 
   const createEntry = useMutation({
-    mutationFn: (data) => pb.collection('time_entries').create(data),
+    mutationFn: (data) => client.records('time_entries').create(data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['week_entries'] })
   })
 
   const updateEntry = useMutation({
-    mutationFn: ({ id, ...data }) => pb.collection('time_entries').update(id, data),
+    mutationFn: ({ id, ...data }) => client.records('time_entries').update(id, data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['week_entries'] })
   })
 
   const deleteEntry = useMutation({
-    mutationFn: (id) => pb.collection('time_entries').delete(id),
+    mutationFn: (id) => client.records('time_entries').delete(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['week_entries'] })
   })
 
@@ -175,7 +191,7 @@ export default function Timer() {
     setTimerProjectId(projectId)
     setElapsed(0)
     setRunning(true)
-    const created = await createEntry.mutateAsync({
+    const id = await createEntry.mutateAsync({
       project: projectId,
       task: taskId || null,
       date: todayStr(),
@@ -184,8 +200,8 @@ export default function Timer() {
       started_at: now,
       ended_at: ''
     })
-    setActiveEntryId(created.id)
-    saveTimerState({ entryId: created.id, startedAt: now, projectId, taskId, notes: notes || '' })
+    setActiveEntryId(id)
+    saveTimerState({ entryId: id, startedAt: now, projectId, taskId, notes: notes || '' })
   }
 
   function stopTimer() {
@@ -241,7 +257,7 @@ export default function Timer() {
             <span className="font-mono text-2xl font-bold tracking-tight">{formatElapsed(elapsed)}</span>
             {timerProject && (
               <span className="text-sm opacity-90">
-                {timerProject.expand?.client?.[0]?.name} — {timerProject.name}
+                {timerProject.client_name} — {timerProject.name}
               </span>
             )}
           </div>
@@ -324,7 +340,7 @@ export default function Timer() {
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white">
                   <option value="">Select project...</option>
                   {projects.map(p => (
-                    <option key={p.id} value={p.id}>{p.expand?.client?.[0]?.name} — {p.name}</option>
+                    <option key={p.id} value={p.id}>{p.client_name} — {p.name}</option>
                   ))}
                 </select>
               </div>
@@ -382,10 +398,6 @@ export default function Timer() {
           )}
 
           {dayEntries.map(entry => {
-            const project = entry.expand?.project?.[0]
-            const client = project?.expand?.client?.[0]
-            const task = entry.expand?.task?.[0]
-
             if (editingId === entry.id) {
               return (
                 <div key={entry.id} className="px-6 py-4 bg-orange-50 border-l-2 border-orange-400">
@@ -396,7 +408,7 @@ export default function Timer() {
                         className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white">
                         <option value="">Select project...</option>
                         {projects.map(p => (
-                          <option key={p.id} value={p.id}>{p.expand?.client?.[0]?.name} — {p.name}</option>
+                          <option key={p.id} value={p.id}>{p.client_name} — {p.name}</option>
                         ))}
                       </select>
                     </div>
@@ -431,10 +443,10 @@ export default function Timer() {
               <div key={entry.id} className="px-6 py-4 flex items-center justify-between hover:bg-gray-50 group">
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-semibold text-gray-900">
-                    {project?.name}
-                    {client && <span className="font-normal text-gray-500"> ({client.name})</span>}
+                    {entry.project_name}
+                    {entry.client_name && <span className="font-normal text-gray-500"> ({entry.client_name})</span>}
                   </p>
-                  {task && <p className="text-sm text-gray-500">{task.name}</p>}
+                  {entry.task_name && <p className="text-sm text-gray-500">{entry.task_name}</p>}
                   {entry.notes && <p className="text-xs text-gray-400 mt-0.5 truncate">{entry.notes}</p>}
                 </div>
                 <div className="flex items-center gap-2 ml-4 flex-shrink-0">
@@ -442,22 +454,16 @@ export default function Timer() {
                     {formatHours(entry.hours)}
                   </span>
                   <button
-                    onClick={() => {
-                      const pId = Array.isArray(entry.project) ? entry.project[0] : entry.project
-                      const tId = Array.isArray(entry.task) ? (entry.task[0] || '') : (entry.task || '')
-                      startTimer(pId, tId, entry.notes)
-                    }}
+                    onClick={() => startTimer(entry.project_id, entry.task_id || '', entry.notes)}
                     disabled={running}
                     className="flex items-center gap-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-500 hover:border-orange-400 hover:text-orange-500 disabled:opacity-30 disabled:cursor-not-allowed transition">
                     <span className="text-xs">⏱</span> Start
                   </button>
                   <button
                     onClick={() => {
-                      const pId = Array.isArray(entry.project) ? entry.project[0] : entry.project
-                      const tId = Array.isArray(entry.task) ? (entry.task[0] || '') : (entry.task || '')
                       setEditingId(entry.id)
-                      setEditProject(pId || '')
-                      setEditTask(tId)
+                      setEditProject(entry.project_id || '')
+                      setEditTask(entry.task_id || '')
                       setEditHours(entry.hours.toFixed(2))
                       setEditNotes(entry.notes || '')
                     }}

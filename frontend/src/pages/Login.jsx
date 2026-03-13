@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { pb } from '../lib/pb'
+import { client } from '../lib/client'
 
 export default function Login() {
   const [email, setEmail] = useState('')
@@ -12,14 +12,7 @@ export default function Login() {
     e.preventDefault()
     setError('')
     try {
-      const res = await fetch('http://127.0.0.1:8090/api/admins/auth-with-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identity: email, password })
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.message || 'Auth failed')
-      pb.authStore.save(data.token, data.admin)
+      await client.login(email, password)
       navigate('/timer')
     } catch (err) {
       setError('Invalid email or password')

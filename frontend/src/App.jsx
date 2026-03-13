@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
-import { pb } from './lib/pb'
+import { client } from './lib/client'
 import Login from './pages/Login'
 import Layout from './components/Layout'
 import Clients from './pages/Clients'
@@ -8,7 +8,7 @@ import Timer from './pages/Timer'
 import Reports from './pages/Reports'
 
 function PrivateRoute({ children }) {
-  return pb.authStore.isValid ? children : <Navigate to="/login" replace />
+  return client.user() ? children : <Navigate to="/login" replace />
 }
 
 export default function App() {

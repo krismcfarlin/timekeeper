@@ -9,7 +9,7 @@ fn setup_data_dir(data_dir: &PathBuf) {
     if !migrations_dir.exists() {
         std::fs::create_dir_all(&migrations_dir).expect("Failed to create migrations dir");
         std::fs::write(
-            migrations_dir.join("U20260313000001__timekeeper_schema.sql"),
+            migrations_dir.join("U1741826400__timekeeper_schema.sql"),
             SCHEMA_SQL,
         )
         .expect("Failed to write migration");

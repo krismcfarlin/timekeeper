@@ -14,7 +14,7 @@ export default function Login() {
     try {
       await client.login(email, password)
       navigate('/timer')
-    } catch (err) {
+    } catch {
       setError('Invalid email or password')
     }
   }

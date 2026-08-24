@@ -6,6 +6,9 @@ import Clients from './pages/Clients'
 import Projects from './pages/Projects'
 import Timer from './pages/Timer'
 import Reports from './pages/Reports'
+import CalendarImport from './pages/CalendarImport'
+import Invoices from './pages/Invoices'
+import InvoiceEditor from './pages/InvoiceEditor'
 
 function PrivateRoute({ children }) {
   return client.user() ? children : <Navigate to="/login" replace />
@@ -21,6 +24,10 @@ export default function App() {
         <Route path="clients" element={<Clients />} />
         <Route path="projects" element={<Projects />} />
         <Route path="reports" element={<Reports />} />
+        <Route path="calendar" element={<CalendarImport />} />
+        <Route path="invoices" element={<Invoices />} />
+        <Route path="invoices/new" element={<InvoiceEditor />} />
+        <Route path="invoices/:id" element={<InvoiceEditor />} />
       </Route>
     </Routes>
   )

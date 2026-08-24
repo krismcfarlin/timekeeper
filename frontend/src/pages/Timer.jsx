@@ -1,6 +1,10 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useEffectEvent, useRef, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { client } from '../lib/client'
+import { invoke as tauriInvoke } from '@tauri-apps/api/core'
+import { listen as tauriListen } from '@tauri-apps/api/event'
+
+const isTauri = '__TAURI_INTERNALS__' in window
 
 const LS_KEY = 'timekeeper_active_timer'
 
@@ -59,12 +63,18 @@ const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 export default function Timer() {
   const qc = useQueryClient()
   const [selectedDate, setSelectedDate] = useState(todayStr())
+  const [initialTimerState] = useState(() => loadTimerState())
 
   // Timer state
-  const [running, setRunning] = useState(false)
-  const [elapsed, setElapsed] = useState(0)
-  const [activeEntryId, setActiveEntryId] = useState(null)
-  const [timerProjectId, setTimerProjectId] = useState('')
+  const [running, setRunning] = useState(() => Boolean(initialTimerState))
+  const [paused, setPaused] = useState(false)
+  const [elapsed, setElapsed] = useState(() => (
+    initialTimerState
+      ? Math.max(0, Math.floor((Date.now() - new Date(initialTimerState.startedAt).getTime()) / 1000))
+      : 0
+  ))
+  const [activeEntryId, setActiveEntryId] = useState(() => initialTimerState?.entryId ?? null)
+  const [timerProjectId, setTimerProjectId] = useState(() => initialTimerState?.projectId || '')
   const intervalRef = useRef(null)
 
   // Add form
@@ -86,26 +96,14 @@ export default function Timer() {
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
   const weekEnd = weekDays[6]
 
-  // Restore timer from localStorage on mount
   useEffect(() => {
-    const saved = loadTimerState()
-    if (saved) {
-      const elapsedSecs = Math.floor((Date.now() - new Date(saved.startedAt).getTime()) / 1000)
-      setActiveEntryId(saved.entryId)
-      setTimerProjectId(saved.projectId || '')
-      setElapsed(Math.max(0, elapsedSecs))
-      setRunning(true)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (running) {
+    if (running && !paused) {
       intervalRef.current = setInterval(() => setElapsed(e => e + 1), 1000)
     } else {
       clearInterval(intervalRef.current)
     }
     return () => clearInterval(intervalRef.current)
-  }, [running])
+  }, [running, paused])
 
   const { data: projects = [] } = useQuery({
     queryKey: ['projects'],
@@ -140,7 +138,7 @@ export default function Timer() {
     enabled: !!editProject
   })
 
-  const { data: weekEntries = [], refetch: refetchWeek } = useQuery({
+  const { data: weekEntries = [] } = useQuery({
     queryKey: ['week_entries', weekStart, weekEnd],
     queryFn: () => client.records('time_entries_full').list({
       filters: [
@@ -170,6 +168,23 @@ export default function Timer() {
 
   const timerProject = projects.find(p => p.id === timerProjectId)
 
+  // Update title every tick
+  useEffect(() => {
+    if (!isTauri) return
+    tauriInvoke('update_tray_title', {
+      client: timerProject?.client_name ?? timerProject?.name ?? '',
+      elapsed: formatElapsed(elapsed),
+      running,
+      paused,
+    }).catch(() => {})
+  }, [elapsed, running, paused, timerProject])
+
+  // Rebuild menu only when running/paused state changes (avoids closing open menu)
+  useEffect(() => {
+    if (!isTauri) return
+    tauriInvoke('update_tray_menu', { running, paused }).catch(() => {})
+  }, [running, paused])
+
   const createEntry = useMutation({
     mutationFn: (data) => client.records('time_entries').create(data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['week_entries'] })
@@ -184,6 +199,37 @@ export default function Timer() {
     mutationFn: (id) => client.records('time_entries').delete(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['week_entries'] })
   })
+
+  function stopTimer() {
+    setRunning(false)
+    setPaused(false)
+    clearInterval(intervalRef.current)
+    const hours = parseFloat((elapsed / 3600).toFixed(4))
+    if (activeEntryId) {
+      updateEntry.mutate({
+        id: activeEntryId,
+        hours: hours > 0.001 ? hours : 0.01,
+        ended_at: new Date().toISOString()
+      })
+    }
+    saveTimerState(null)
+    setActiveEntryId(null)
+    setElapsed(0)
+    setTimerProjectId('')
+  }
+
+  const handleTrayAction = useEffectEvent((payload) => {
+    if (payload === 'toggle') setPaused(p => !p)
+    else if (payload === 'stop') stopTimer()
+  })
+
+  useEffect(() => {
+    if (!isTauri) return
+    const unlisten = tauriListen('tray-action', (event) => {
+      handleTrayAction(event.payload)
+    })
+    return () => { unlisten.then(fn => fn()) }
+  }, [])
 
   async function startTimer(projectId, taskId, notes) {
     if (running) return
@@ -202,23 +248,6 @@ export default function Timer() {
     })
     setActiveEntryId(id)
     saveTimerState({ entryId: id, startedAt: now, projectId, taskId, notes: notes || '' })
-  }
-
-  function stopTimer() {
-    setRunning(false)
-    clearInterval(intervalRef.current)
-    const hours = parseFloat((elapsed / 3600).toFixed(4))
-    if (activeEntryId) {
-      updateEntry.mutate({
-        id: activeEntryId,
-        hours: hours > 0.001 ? hours : 0.01,
-        ended_at: new Date().toISOString()
-      })
-    }
-    saveTimerState(null)
-    setActiveEntryId(null)
-    setElapsed(0)
-    setTimerProjectId('')
   }
 
   function submitAdd(e) {
@@ -251,8 +280,8 @@ export default function Timer() {
   return (
     <div>
       {/* Running timer banner */}
-      {running && (
-        <div className="bg-orange-500 text-white px-6 py-3 flex items-center justify-between -mx-6 -mt-8 mb-6 rounded-b-2xl">
+      {(running || paused) && (
+        <div className={`${paused ? 'bg-gray-500' : 'bg-orange-500'} text-white px-6 py-3 flex items-center justify-between -mx-6 -mt-8 mb-6 rounded-b-2xl`}>
           <div className="flex items-center gap-4">
             <span className="font-mono text-2xl font-bold tracking-tight">{formatElapsed(elapsed)}</span>
             {timerProject && (
@@ -260,11 +289,18 @@ export default function Timer() {
                 {timerProject.client_name} — {timerProject.name}
               </span>
             )}
+            {paused && <span className="text-sm opacity-75 italic">paused</span>}
           </div>
-          <button onClick={stopTimer}
-            className="bg-white text-orange-600 rounded-lg px-4 py-1.5 text-sm font-semibold hover:bg-orange-50 transition">
-            Stop
-          </button>
+          <div className="flex gap-2">
+            <button onClick={() => setPaused(p => !p)}
+              className="bg-white/20 hover:bg-white/30 text-white rounded-lg px-4 py-1.5 text-sm font-semibold transition">
+              {paused ? '▶ Resume' : '⏸ Pause'}
+            </button>
+            <button onClick={stopTimer}
+              className="bg-white text-orange-600 rounded-lg px-4 py-1.5 text-sm font-semibold hover:bg-orange-50 transition">
+              Stop
+            </button>
+          </div>
         </div>
       )}
 

@@ -61,7 +61,7 @@ FE_PID=$!
 
 echo ""
 echo "==> Timekeeper running!"
-echo "    App:    http://localhost:5173"
+echo "    App:    http://localhost:47173"
 echo "    Admin:  http://localhost:8090/_/"
 echo ""
 echo "Press Ctrl+C to stop."

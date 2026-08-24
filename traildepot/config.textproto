@@ -1,7 +1,10 @@
 server {
   application_name: "Timekeeper"
 }
-auth {}
+auth {
+  auth_token_ttl_sec: 2592000
+  refresh_token_ttl_sec: 31536000
+}
 record_apis: [
   {
     name: "clients"
@@ -31,6 +34,21 @@ record_apis: [
   {
     name: "projects_with_client"
     table_name: "projects_with_client"
+    acl_authenticated: [READ]
+  },
+  {
+    name: "invoices"
+    table_name: "invoices"
+    acl_authenticated: [CREATE, READ, UPDATE, DELETE]
+  },
+  {
+    name: "invoice_line_items"
+    table_name: "invoice_line_items"
+    acl_authenticated: [CREATE, READ, UPDATE, DELETE]
+  },
+  {
+    name: "invoices_with_client"
+    table_name: "invoices_with_client"
     acl_authenticated: [READ]
   }
 ]

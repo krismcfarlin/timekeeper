@@ -5,9 +5,9 @@
   "identifier": "io.timekeeper.app",
   "build": {
     "frontendDist": "http://localhost:4000",
-    "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "cd ../frontend && npm run dev",
-    "beforeBuildCommand": "cd ../frontend && npm run build"
+    "devUrl": "http://localhost:47173",
+    "beforeDevCommand": { "script": "npm run dev", "cwd": "../frontend" },
+    "beforeBuildCommand": { "script": "npm run build", "cwd": "../frontend" }
   },
   "app": {
     "windows": [
